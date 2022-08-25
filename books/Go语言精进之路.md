@@ -231,3 +231,36 @@ func main() {
 **对于基于自定义非接口创建的新类型**则没有“继承”原类型的方法集合，新类型的方法集合是空的。
 
 **类型别名与原类型是几乎等价**的，顾名思义，就是别名而已，所以基于类型别名定义的变量也可以使用原类型对应的方法集合。
+
+## 接口类型
+
+提到接口类型就会想到Go的**经典问题 nil error值 ！= nil**，为什么是不等于呢，想要弄清楚这个问题，需要先了解接口类型的内部显示；
+
+接口类型变量有两种内部表示，分别是**eface**（没有方法的空接口类型变量：interface{}）和**iface**（用于表示其他有方法的接口类型变量：interface）；二者**相同点**在于都有**两个指针字段**，并且**第二个指针字段的作用相同**，都是指向当前赋值给该接口类型变量的动态类型变量的**值**；**不同点**则在于**eface**所表示的空接口类型并**无方法列表**，因此**第一个指针类型**指向一个**_type**类型结构，该结构为该接口类型变量的动态类型信息，而**iface**除了要**存储动态类型信息**外，还要**存储接口本身信息**（类型信息、方法列表信息等）以及**动态类型所实现的方法的信息**，因此iface第一个指针字段指向itab类型结构；
+
+```
+type iface struct{
+	tab	*itab
+	data unsafe.Pointer
+}
+type eface struct{
+	_type *_type
+	data unsafe.Pointer
+}
+type _type struct{
+	size	uintptr
+	ptrdata	uintptr
+	hash	uintptr
+	tflag	uintptr
+	...
+}
+type itab struct{
+	inter *interfacetype
+	_type *_type
+	hash  uint32
+	_ 	  [4]byte
+	fun   [1]uintptr
+}
+```
+
+然后回到最开始的问题，为什么 nil error值 ！= nil ？就很清楚的知道了，因为非空接口类型变量的类型信息并不为空，数据指针为空，因此它与nil（0x0,0x0）之间不能划等号。
