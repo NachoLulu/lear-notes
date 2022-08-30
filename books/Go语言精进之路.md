@@ -264,3 +264,81 @@ type itab struct{
 ```
 
 然后回到最开始的问题，为什么 nil error值 ！= nil ？就很清楚的知道了，因为非空接口类型变量的类型信息并不为空，数据指针为空，因此它与nil（0x0,0x0）之间不能划等号。
+
+接口类型比较时，当且仅当两个接口类型变量的类型信息（eface._type/iface.tab._type）相同，且数据指针（eface.data/iface.data）所指数据相同时，两个接口类型才是相等的。
+
+## 错误处理策略
+
+要写出高质量的Go代码，我们需要**始终想着错误处理**。这些年来，Go核心开发团队与Go社区已经形成了4种惯用的**Go错误处理策略**。
+
+#### 透明错误处理策略
+
+最简单的错误策略莫过于完全不关心返回错误值携带的具体上下文信息，只要发生错误就进入唯一的错误处理之行路径。这也是Go语言中**最简单最常见的错误处理策略**。
+
+#### “哨兵”错误处理策略
+
+如果不能仅根据透明错误值就做出错误处理路径的选取决策，错误处理放会尝试对返回的错误值进行检视，于是就有可能出现下面的反模式：
+
+错误处理方以透明错误值所能提供的唯一上下文信息作为选择错误处理路径的依据，这种反模式会造成验证的**隐式耦合**：错误值构造反方不经眼间的一次错误描述字符串的变动，都会造成错误处理行为的变化，并且通过字符串比较的方式对错误值进行检视的性能也很差。
+
+```
+var ErrSentinel = errors.New("the underlying sentinel error")
+
+func main() {
+	err1 := fmt.Println("wrap err1: %w", ErrSentinel)
+	err2 := fmt.Println("wrap err2: %w", err1")
+	if errors.Is(err2, ErrSentinel) {
+		println("err is ErrSentinel")
+		return
+	}
+	
+	println("err is not ErrSentinel")
+}
+```
+
+
+
+#### 错误值类型检视策略
+
+有时基于Go标准库提高的错误类型构造方法构造“哨兵”错误值并未提供有效的错误上下文信息，只能进行简单的错误值处理比较。
+
+我们可以通过自定义错误类型的构造值的方式来提供更多的错误上下文信息，并且通过error接口变量统一呈现，要得到底层的错误类型携带的错误上下文信息，错误处理方需要使用Go提供的**类型断言机制**或**类型选择机制**，这种被称为**错误值类型检视策略**。
+
+```
+type MyError struct {
+	e string
+}
+
+func (e *MyError) Error() string {
+	return e.e
+}
+
+func main() {
+	var err &MyError{
+	"my error type"
+	}
+	err1 := fmt.Errorf("wrap err1: %w",err)
+	err2 := fmt.Errorf("wrap err2: %w",err1)
+	var e *MyError
+	if errors.As(err2, &e) {
+		println("MyError is on the chain of err2")
+		println(e == err)
+		return
+	}
+	
+	println("MyError is not on the chain of err2")
+}
+```
+
+#### 错误行为特征检视策略
+
+除了透明错误处理策略，是否还有手段可以降低错误处理方与错误值构造方的耦合，在Go的标准库中发现了一种这样的错误处理方式：将莫个包中的错误类型归类，统一提取出一些公共的错误行为特征，并将这些错误行为特征放入一个公开的接口类型中。
+
+```
+type Error struct {
+	error
+	Timeout() bool		// 超时错误？
+	Temporary() bool	// 临时错误？
+}
+```
+
